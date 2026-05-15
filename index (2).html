@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AquaVolt AR</title>
+
+  <!-- A-Frame -->
+  <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+  <!-- AR.js para A-Frame -->
+  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; font-family: 'Segoe UI', sans-serif; }
+
+    /* HUD flotante sobre la cámara */
+    #hud {
+      position: fixed;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 999;
+      background: rgba(5, 30, 20, 0.82);
+      border: 1px solid rgba(93, 202, 165, 0.4);
+      border-radius: 14px;
+      padding: 10px 18px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      backdrop-filter: blur(6px);
+      min-width: 260px;
+    }
+    #hud-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #5DCAA5;
+      animation: pulse 1.2s infinite;
+      flex-shrink: 0;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.8); }
+    }
+    #hud-text {
+      font-size: 12px;
+      color: #9FE1CB;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    /* Panel de métricas inferior */
+    #metrics-panel {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 999;
+      background: rgba(5, 20, 15, 0.88);
+      border: 1px solid rgba(93, 202, 165, 0.35);
+      border-radius: 16px;
+      padding: 14px 20px;
+      display: flex;
+      gap: 20px;
+      backdrop-filter: blur(8px);
+      min-width: 320px;
+    }
+    .metric {
+      text-align: center;
+      flex: 1;
+    }
+    .metric-val {
+      font-size: 22px;
+      font-weight: 700;
+      font-family: 'Courier New', monospace;
+      display: block;
+    }
+    .metric-label {
+      font-size: 10px;
+      color: rgba(93, 202, 165, 0.6);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-top: 2px;
+      display: block;
+    }
+    .metric-val.ok   { color: #5DCAA5; }
+    .metric-val.warn { color: #FAC775; }
+    .metric-val.bad  { color: #F09595; }
+
+    .metric-divider {
+      width: 1px;
+      background: rgba(93,202,165,0.2);
+      align-self: stretch;
+    }
+
+    /* Status badge */
+    #status-badge {
+      position: fixed;
+      bottom: 110px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 999;
+      padding: 7px 18px;
+      border-radius: 30px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      transition: background 0.4s, color 0.4s;
+    }
+    #status-badge.ok   { background: rgba(29,158,117,0.25); color: #5DCAA5; border: 1px solid rgba(29,158,117,0.5); }
+    #status-badge.warn { background: rgba(186,117,23,0.25);  color: #FAC775; border: 1px solid rgba(186,117,23,0.5); }
+    #status-badge.bad  { background: rgba(163,45,45,0.25);   color: #F09595; border: 1px solid rgba(163,45,45,0.5); }
+
+    /* Energía solar */
+    #solar-hud {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      z-index: 999;
+      background: rgba(5, 30, 20, 0.82);
+      border: 1px solid rgba(93, 202, 165, 0.3);
+      border-radius: 10px;
+      padding: 8px 12px;
+      text-align: center;
+      min-width: 90px;
+      backdrop-filter: blur(6px);
+    }
+    #solar-hud .slabel {
+      font-size: 9px;
+      color: rgba(93,202,165,0.6);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      display: block;
+      margin-bottom: 5px;
+    }
+    #solar-bar-wrap {
+      background: rgba(255,255,255,0.08);
+      border-radius: 4px;
+      height: 5px;
+      overflow: hidden;
+    }
+    #solar-bar {
+      height: 100%;
+      border-radius: 4px;
+      background: linear-gradient(90deg, #1D9E75, #5DCAA5);
+      width: 78%;
+      transition: width 0.5s;
+    }
+    #solar-pct {
+      font-size: 14px;
+      font-weight: 700;
+      color: #5DCAA5;
+      font-family: 'Courier New', monospace;
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    /* Instrucción inicial */
+    #scan-hint {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 998;
+      text-align: center;
+      pointer-events: none;
+    }
+    #scan-frame {
+      width: 180px;
+      height: 180px;
+      border: 2px solid rgba(93,202,165,0.5);
+      border-radius: 16px;
+      margin: 0 auto 12px;
+      position: relative;
+      animation: scanpulse 2s ease-in-out infinite;
+    }
+    @keyframes scanpulse {
+      0%, 100% { border-color: rgba(93,202,165,0.4); }
+      50%       { border-color: rgba(93,202,165,0.9); }
+    }
+    .scan-corner {
+      position: absolute;
+      width: 20px; height: 20px;
+    }
+    .scan-corner.tl { top: -2px; left: -2px; border-top: 3px solid #5DCAA5; border-left: 3px solid #5DCAA5; border-radius: 4px 0 0 0; }
+    .scan-corner.tr { top: -2px; right: -2px; border-top: 3px solid #5DCAA5; border-right: 3px solid #5DCAA5; border-radius: 0 4px 0 0; }
+    .scan-corner.bl { bottom: -2px; left: -2px; border-bottom: 3px solid #5DCAA5; border-left: 3px solid #5DCAA5; border-radius: 0 0 0 4px; }
+    .scan-corner.br { bottom: -2px; right: -2px; border-bottom: 3px solid #5DCAA5; border-right: 3px solid #5DCAA5; border-radius: 0 0 4px 0; }
+    #scan-hint p {
+      color: rgba(255,255,255,0.7);
+      font-size: 13px;
+      letter-spacing: 0.04em;
+    }
+
+    /* Ocultar hint cuando marcador detectado */
+    .marker-found #scan-hint { display: none; }
+  </style>
+</head>
+<body>
+
+  <!-- ==========================================
+       HUD ELEMENTOS DE INTERFAZ
+  ========================================== -->
+  <div id="hud">
+    <div id="hud-dot"></div>
+    <span id="hud-text">AquaVolt · Buscando marcador…</span>
+  </div>
+
+  <!-- Panel energía solar -->
+  <div id="solar-hud">
+    <span class="slabel">☀️ Solar</span>
+    <span id="solar-pct">78%</span>
+    <div id="solar-bar-wrap"><div id="solar-bar"></div></div>
+  </div>
+
+  <!-- Métricas -->
+  <div id="metrics-panel">
+    <div class="metric">
+      <span class="metric-val ok" id="m-ph">7.2</span>
+      <span class="metric-label">pH</span>
+    </div>
+    <div class="metric-divider"></div>
+    <div class="metric">
+      <span class="metric-val ok" id="m-turb">1.4</span>
+      <span class="metric-label">Turbidez NTU</span>
+    </div>
+    <div class="metric-divider"></div>
+    <div class="metric">
+      <span class="metric-val ok" id="m-temp">18°C</span>
+      <span class="metric-label">Temperatura</span>
+    </div>
+    <div class="metric-divider"></div>
+    <div class="metric">
+      <span class="metric-val ok" id="m-cont">0.01</span>
+      <span class="metric-label">Contam. mg/L</span>
+    </div>
+  </div>
+
+  <!-- Badge de estado -->
+  <div id="status-badge" class="ok">✓ Agua potable</div>
+
+  <!-- Hint de escaneo -->
+  <div id="scan-hint">
+    <div id="scan-frame">
+      <div class="scan-corner tl"></div>
+      <div class="scan-corner tr"></div>
+      <div class="scan-corner bl"></div>
+      <div class="scan-corner br"></div>
+    </div>
+    <p>Apunta al marcador Hiro<br>del dispositivo AquaVolt</p>
+  </div>
+
+
+  <!-- ==========================================
+       ESCENA AR.js + A-FRAME
+  ========================================== -->
+  <a-scene
+    embedded
+    arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3;"
+    vr-mode-ui="enabled: false"
+    renderer="logarithmicDepthBuffer: true; precision: medium;"
+    style="position:fixed; top:0; left:0; width:100%; height:100%;"
+  >
+
+    <!-- Cámara AR -->
+    <a-camera gps-camera rotation-reader></a-camera>
+
+    <!-- ===========================
+         MARCADOR HIRO — Contenido AR
+    =========================== -->
+    <a-marker
+      preset="hiro"
+      id="hiro-marker"
+      smooth="true"
+      smoothCount="10"
+      smoothTolerance="0.01"
+      smoothThreshold="5"
+    >
+
+      <!-- BASE CIRCULAR -->
+      <a-cylinder
+        position="0 0.02 0"
+        radius="1.2"
+        height="0.04"
+        color="#0a2e1e"
+        opacity="0.85"
+      ></a-cylinder>
+
+      <!-- ANILLO EXTERIOR -->
+      <a-torus
+        position="0 0.05 0"
+        radius="1.2"
+        radius-tubular="0.03"
+        color="#1D9E75"
+        opacity="0.9"
+        animation="property: rotation; to: 0 360 0; loop: true; dur: 8000; easing: linear"
+      ></a-torus>
+
+      <!-- ESFERA DE AGUA CENTRAL -->
+      <a-sphere
+        position="0 0.7 0"
+        radius="0.35"
+        color="#1D9E75"
+        opacity="0.75"
+        shader="flat"
+        animation="property: position; to: 0 0.85 0; dir: alternate; loop: true; dur: 2000; easing: easeInOutSine"
+      ></a-sphere>
+
+      <!-- GOTA interior -->
+      <a-sphere
+        position="0 0.7 0"
+        radius="0.22"
+        color="#5DCAA5"
+        opacity="0.5"
+        shader="flat"
+        animation="property: position; to: 0 0.85 0; dir: alternate; loop: true; dur: 2000; easing: easeInOutSine"
+      ></a-sphere>
+
+      <!-- TEXTO: NOMBRE -->
+      <a-text
+        value="AquaVolt"
+        position="0 1.4 0"
+        align="center"
+        color="#5DCAA5"
+        width="4"
+        font="monoid"
+      ></a-text>
+
+      <!-- TEXTO: ESTADO (actualizado por JS) -->
+      <a-text
+        id="ar-status-text"
+        value="AGUA POTABLE"
+        position="0 1.15 0"
+        align="center"
+        color="#9FE1CB"
+        width="3.5"
+        scale="0.8 0.8 0.8"
+      ></a-text>
+
+      <!-- PANEL pH -->
+      <a-plane
+        position="-1.0 0.5 0"
+        rotation="-90 0 0"
+        width="0.8" height="0.5"
+        color="#051e14"
+        opacity="0.9"
+        border="0.02"
+      >
+        <a-text value="pH" position="0 0.12 0.01" align="center" color="#5DCAA5" width="2" scale="0.7 0.7 0.7"></a-text>
+        <a-text id="ar-ph" value="7.2" position="0 -0.05 0.01" align="center" color="#9FE1CB" width="3"></a-text>
+      </a-plane>
+
+      <!-- PANEL TURBIDEZ -->
+      <a-plane
+        position="0 0.5 -1.0"
+        rotation="-90 0 0"
+        width="0.85" height="0.5"
+        color="#051e14"
+        opacity="0.9"
+      >
+        <a-text value="Turbidez" position="0 0.12 0.01" align="center" color="#5DCAA5" width="2" scale="0.7 0.7 0.7"></a-text>
+        <a-text id="ar-turb" value="1.4 NTU" position="0 -0.05 0.01" align="center" color="#9FE1CB" width="3"></a-text>
+      </a-plane>
+
+      <!-- PANEL TEMPERATURA -->
+      <a-plane
+        position="1.0 0.5 0"
+        rotation="-90 0 0"
+        width="0.85" height="0.5"
+        color="#051e14"
+        opacity="0.9"
+      >
+        <a-text value="Temp." position="0 0.12 0.01" align="center" color="#5DCAA5" width="2" scale="0.7 0.7 0.7"></a-text>
+        <a-text id="ar-temp" value="18 °C" position="0 -0.05 0.01" align="center" color="#9FE1CB" width="3"></a-text>
+      </a-plane>
+
+      <!-- PANEL CONTAMINACIÓN -->
+      <a-plane
+        position="0 0.5 1.0"
+        rotation="-90 0 0"
+        width="0.95" height="0.5"
+        color="#051e14"
+        opacity="0.9"
+      >
+        <a-text value="Contam." position="0 0.12 0.01" align="center" color="#5DCAA5" width="2" scale="0.7 0.7 0.7"></a-text>
+        <a-text id="ar-cont" value="0.01 mg/L" position="0 -0.05 0.01" align="center" color="#9FE1CB" width="3"></a-text>
+      </a-plane>
+
+      <!-- COLUMNAS INDICADORAS (barras verticales decorativas) -->
+      <a-cylinder position="-0.6 0.25 -0.6" radius="0.04" height="0.5"  color="#1D9E75" opacity="0.7"></a-cylinder>
+      <a-cylinder position=" 0.6 0.15 -0.6" radius="0.04" height="0.3"  color="#1D9E75" opacity="0.7"></a-cylinder>
+      <a-cylinder position="-0.6 0.35 0.6"  radius="0.04" height="0.7"  color="#1D9E75" opacity="0.7"></a-cylinder>
+      <a-cylinder position=" 0.6 0.20 0.6"  radius="0.04" height="0.4"  color="#5DCAA5" opacity="0.7"></a-cylinder>
+
+    </a-marker>
+
+    <!-- ===========================
+         MARCADOR CUSTOM (imagen QR)
+         Descomenta si usas imagen propia
+    =========================== -->
+    <!--
+    <a-marker
+      type="pattern"
+      url="assets/pattern-aquavolt.patt"
+    >
+      ... mismo contenido ...
+    </a-marker>
+    -->
+
+  </a-scene>
+
+
+  <!-- ==========================================
+       JAVASCRIPT — Lógica y datos en tiempo real
+  ========================================== -->
+  <script>
+    // -----------------------------------------------
+    // DATOS DE SENSORES
+    // Reemplaza estos valores con tu API real:
+    // fetch('https://tu-api.com/sensores').then(r => r.json()).then(updateMetrics)
+    // -----------------------------------------------
+    let sensorData = {
+      ph:   7.2,
+      turb: 1.4,
+      temp: 18,
+      cont: 0.01,
+      solar: 78
+    };
+
+    // Simula variación de datos (quita esto cuando conectes tu API real)
+    function simulateSensors() {
+      sensorData.ph   = parseFloat((6.8 + Math.random() * 1.8).toFixed(1));
+      sensorData.turb = parseFloat((0.5 + Math.random() * 3.5).toFixed(1));
+      sensorData.temp = Math.round(15 + Math.random() * 10);
+      sensorData.cont = parseFloat((0.005 + Math.random() * 0.05).toFixed(3));
+      sensorData.solar = Math.round(60 + Math.random() * 30);
+      updateMetrics(sensorData);
+    }
+
+    // Actualizar HUD y texto AR
+    function updateMetrics(data) {
+      // ---- Clasificación ----
+      const phOk   = data.ph   >= 6.5 && data.ph   <= 8.5;
+      const turbOk = data.turb <= 5;
+      const tempOk = data.temp >= 5  && data.temp  <= 30;
+      const contOk = data.cont <= 0.04;
+
+      const allOk = phOk && turbOk && tempOk && contOk;
+      const anyBad = (!phOk && (data.ph < 5 || data.ph > 10)) || data.turb > 10 || data.cont > 0.08;
+
+      const level = allOk ? 'ok' : anyBad ? 'bad' : 'warn';
+
+      // ---- HUD métricas ----
+      setMetric('m-ph',   data.ph.toFixed(1),  phOk   ? 'ok' : (data.ph < 5 || data.ph > 10 ? 'bad' : 'warn'));
+      setMetric('m-turb', data.turb.toFixed(1), turbOk ? 'ok' : data.turb > 10 ? 'bad' : 'warn');
+      setMetric('m-temp', data.temp + '°C',     tempOk ? 'ok' : 'warn');
+      setMetric('m-cont', data.cont.toFixed(3), contOk ? 'ok' : anyBad ? 'bad' : 'warn');
+
+      // ---- Badge de estado ----
+      const badge = document.getElementById('status-badge');
+      badge.className = 'ok warn bad'.split(' ').reduce((a,c) => a, '') + level;
+      badge.className = level;
+      badge.textContent = allOk ? '✓ Agua potable' : anyBad ? '✗ No apta para consumo' : '⚠ Precaución';
+
+      // ---- HUD título ----
+      const hudText = document.getElementById('hud-text');
+      hudText.textContent = 'AquaVolt · ' + (allOk ? 'Todo normal' : anyBad ? 'ALERTA' : 'Revisar parámetros');
+
+      // ---- Solar ----
+      document.getElementById('solar-pct').textContent = data.solar + '%';
+      document.getElementById('solar-bar').style.width = data.solar + '%';
+
+      // ---- Texto AR en el marcador ----
+      const arSt = document.getElementById('ar-status-text');
+      if (arSt) {
+        arSt.setAttribute('value', allOk ? 'AGUA POTABLE' : anyBad ? 'NO APTA' : 'PRECAUCIÓN');
+        arSt.setAttribute('color', allOk ? '#5DCAA5' : anyBad ? '#F09595' : '#FAC775');
+      }
+      const arPh   = document.getElementById('ar-ph');
+      const arTurb = document.getElementById('ar-turb');
+      const arTemp = document.getElementById('ar-temp');
+      const arCont = document.getElementById('ar-cont');
+      if (arPh)   arPh.setAttribute('value',   data.ph.toFixed(1));
+      if (arTurb) arTurb.setAttribute('value', data.turb.toFixed(1) + ' NTU');
+      if (arTemp) arTemp.setAttribute('value', data.temp + ' °C');
+      if (arCont) arCont.setAttribute('value', data.cont.toFixed(3) + ' mg/L');
+
+      // ---- Color esfera central ----
+      const sphere = document.querySelector('a-sphere');
+      if (sphere) sphere.setAttribute('color', allOk ? '#1D9E75' : anyBad ? '#A32D2D' : '#BA7517');
+    }
+
+    function setMetric(id, val, level) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = val;
+      el.className = 'metric-val ' + level;
+    }
+
+    // -----------------------------------------------
+    // DETECCIÓN DEL MARCADOR — cambiar texto HUD
+    // -----------------------------------------------
+    document.addEventListener('DOMContentLoaded', () => {
+      const marker = document.getElementById('hiro-marker');
+      const hud = document.getElementById('hud-text');
+      const hudDot = document.getElementById('hud-dot');
+
+      if (marker) {
+        marker.addEventListener('markerFound', () => {
+          hud.textContent = 'AquaVolt · Marcador detectado ✓';
+          hudDot.style.background = '#5DCAA5';
+          document.body.classList.add('marker-found');
+        });
+        marker.addEventListener('markerLost', () => {
+          hud.textContent = 'AquaVolt · Buscando marcador…';
+          hudDot.style.background = '#FAC775';
+          document.body.classList.remove('marker-found');
+        });
+      }
+
+      // Cargar datos iniciales
+      updateMetrics(sensorData);
+
+      // Simular actualización cada 4 segundos
+      // Reemplazar con: setInterval(() => fetch(API_URL).then(...), 4000)
+      setInterval(simulateSensors, 4000);
+    });
+  </script>
+
+</body>
+</html>
